@@ -1,0 +1,217 @@
+I need to build an ETL application and this is the scope of work, help me write this python code Genie Attom Data - ETL Application
+ Scope of Work
+ 1. Objective
+ To design and implement an automated ETL (Extract – Transform – Load) pipeline using Python hosted on a DigitalOcean Droplet, which processes Attom’s nationwide real estate data (over 142 GB), filters it by selected State Codes (e.g. CA, TX, FL), and stores daily filtered datasets into DigitalOcean Spaces for consumption by the .NET Assessor application.
+ 
+ 2. Background
+ Attom provides large ZIP archives (~2 GB each) containing property data for the entire United States across multiple datasets — including Assessor, Recorder, AVM, PreForeclosure, Parcel, and PROPERTYTOBOUNDARYMATCH_PARCEL.
+ However, only data for selected states is needed for the project.
+ Manually extracting and filtering these files is impractical due to their size (142+ GB total).
+ The goal is to automate the entire process — downloading, extracting, filtering, and delivering state-specific, ready-to-load data files to DigitalOcean Spaces every day.
+ 
+ 3. Scope of Work
+ A. Data Ingestion (Extract Phase)
+ Automatically download the latest ZIP files from the Attom data source (FTP).
+ 
+ 
+ Handle multiple dataset types:
+ 
+ 
+ Assessor (High Priority)
+ 
+ 
+ AVM (High Priority)
+ 
+ 
+ Parcel (This is not on FTP and is served via Jetstream) (High Priority)
+ 
+ 
+ PROPERTYTOBOUNDARYMATCH_PARCEL (High Priority)
+ 
+ 
+ Recorder (Lower Priority - can be done later)
+ 
+ 
+ PreForeclosure (Lower Priority - can be done later)
+ 
+ 
+ Extract each ZIP file to a working directory on the DigitalOcean Droplet.
+ 
+ 
+ 
+ B. Data Filtering (Transform Phase)
+ Process each extracted .txt file line-by-line (streamed) for efficiency — avoiding loading full 2 GB files into memory.
+ 
+ 
+ Filter rows by the SitusStateCode column, retaining only the states specified in configuration (e.g. CA, TX, FL).
+ 
+ 
+ Preserve file format and headers exactly as provided by Attom.
+ 
+ 
+ Create filtered TXT files and compress them back into ZIP format.
+ 
+ 
+ 
+ C. File Storage & Integration (Load Phase)
+ Upload each filtered ZIP file to DigitalOcean Spaces (S3-compatible cloud storage).
+ Organize uploads in a date-based folder structure, e.g.:
+ 
+ spaces://genieattomdata.sfo3.digitaloceanspaces.com/2025-10-28/Assessor_filtered_CA.zip
+ Maintain consistent naming conventions across all dataset types.
+ 
+ 
+ The .NET Assessor application will automatically read the filtered ZIPs from Spaces and insert the records into the database (no manual step required).
+ 
+ 
+ 
+ D. Automation & Scheduling
+ The ETL script will run automatically on the DigitalOcean Droplet at a configured time daily (e.g. 2:00 AM).
+ 
+ 
+ Job scheduling via:
+ 
+ 
+ cron or
+ 
+ 
+ Python’s schedule library (with process supervisor like pm2 or systemd).
+ 
+ 
+ The system will log:
+ 
+ 
+ Download and filter progress
+ 
+ 
+ Start/end times
+ 
+ 
+ Record counts processed
+ 
+ 
+ Errors or skipped files
+ 
+ 
+ 
+ E. Monitoring & Maintenance
+ Generate daily log files stored locally and optionally uploaded to Spaces.
+ 
+ 
+ Optional: Email notifications for job failures.
+ 
+ 
+ Configuration (state list, schedule time, Spaces credentials, URLs) stored in an external JSON or .env file for easy management.
+ 
+ 
+ 
+ 4. Application Flow Diagram
+ 
+ Step
+ Phase
+ Process Description
+ Location / Tools Used
+ Output / Result
+ 1
+ Extract
+ Automatically download Attom ZIP files from the data source (FTP)
+ Python requests on DigitalOcean Droplet
+ ZIP files stored temporarily on Droplet
+ 2
+ Extract
+ Extract the large .txt files (each ~2GB) from the ZIP archives.
+ Python zipfile module
+ Uncompressed TXT files ready for filtering
+ 3
+ Transform
+ Read each TXT file line-by-line (streaming) to handle large data efficiently.
+ Python file streaming
+ Data loaded in memory-efficient chunks
+ 4
+ Transform
+ Filter rows based on SitusStateCode (e.g. CA, TX, FL) as defined in config.
+ Python filtering logic
+ Only selected states’ data retained
+ 5
+ Transform
+ Preserve file structure, headers, and formatting exactly as in the original files.
+ Python text writer
+ Filtered TXT file per dataset type
+ 6
+ Transform
+ Compress the filtered TXT file(s) into new ZIP archives.
+ Python zipfile module
+ Filtered ZIP files ready for upload
+ 7
+ Load
+ Upload filtered ZIP files to DigitalOcean Spaces (S3-compatible storage).
+ Python boto3 with Spaces credentials
+ Files stored in structured folders (e.g. /2025-10-28/Assessor_filtered_CA.zip)
+ 8
+ Load
+ Log job details — processed files, record counts, and time taken.
+ Python logging module
+ Log files saved locally or in Spaces
+ 9
+ Automation
+ Schedule the entire ETL process to run daily at a fixed time (e.g. 2:00 AM).
+ Cron job or Python schedule library
+ Fully automated daily ETL execution
+ 10
+ Integration
+ .NET application fetches the filtered ZIPs from Spaces and loads the data into the Assessor database.
+ .NET backend integration
+ Database updated with filtered, state-specific data
+ 
+ 
+ 
+ 
+ 
+ 
+ 5. Technical Stack
+ 
+ Component
+ Technology
+ Language
+ Python 3.x
+ Hosting
+ DigitalOcean Droplet
+ Storage
+ DigitalOcean Spaces (S3-compatible)
+ Libraries (suggestions)
+ requests, zipfile, boto3 (for Spaces), logging, schedule
+ Scheduler
+ Cron or Python schedule
+ Integration
+ .NET Assessor Application
+ Config Management
+ JSON or .env file
+ 
+ 
+ 
+ 6. Deliverables
+ Fully functional Python ETL application hosted on DigitalOcean.
+ 
+ 
+ Configurable JSON file to manage state list, schedule, and source URLs.
+ 
+ 
+ Automated daily job setup.
+ 
+ 
+ Successful integration with DigitalOcean Spaces.
+ 
+ 
+ Logging and basic monitoring functionality.
+ 
+ 
+ Deployment and usage documentation.
+ 
+ 
+ 
+ 
+ 7. Future Enhancements (Optional)
+ Email notifications for job failures.
+ 
+ 
+ Web dashboard for monitoring job status and data size.

@@ -1,0 +1,80 @@
+{
+  "states": [
+    "CA",
+    "TX",
+    "FL"
+  ],
+  "datasets": [
+    {
+      "name": "Assessor",
+      "enabled": true,
+      "urls": [
+        "ftp://ftp.example.com/attom/assessor/Assessor_National.zip"
+      ],
+      "description": "Assessor dataset - High Priority"
+    },
+    {
+      "name": "AVM",
+      "enabled": true,
+      "urls": [
+        "ftp://ftp.example.com/attom/avm/AVM_National.zip"
+      ],
+      "description": "AVM dataset - High Priority"
+    },
+    {
+      "name": "PROPERTYTOBOUNDARYMATCH_PARCEL",
+      "enabled": true,
+      "urls": [
+        "ftp://ftp.example.com/attom/parcel/PropertyToBoundary_National.zip"
+      ],
+      "description": "Property to Boundary Match Parcel - High Priority"
+    },
+    {
+      "name": "Parcel",
+      "enabled": true,
+      "urls": [
+        "https://jetstream.example.com/parcel/Parcel_National.zip"
+      ],
+      "description": "Parcel dataset via Jetstream - High Priority"
+    },
+    {
+      "name": "Recorder",
+      "enabled": false,
+      "urls": [
+        "ftp://ftp.example.com/attom/recorder/Recorder_National.zip"
+      ],
+      "description": "Recorder dataset - Lower Priority"
+    },
+    {
+      "name": "PreForeclosure",
+      "enabled": false,
+      "urls": [
+        "ftp://ftp.example.com/attom/preforeclosure/PreForeclosure_National.zip"
+      ],
+      "description": "PreForeclosure dataset - Lower Priority"
+    }
+  ],
+  "ftp": {
+    "username": "",
+    "password": ""
+  },
+  "spaces": {
+    "access_key": "",
+    "secret_key": "",
+    "region": "sfo3",
+    "bucket_name": "genieattomdata",
+    "endpoint_url": "https://sfo3.digitaloceanspaces.com"
+  },
+  "directories": {
+    "downloads": "/Outgoing",
+    "extracted": "data/extracted",
+    "filtered": "data/filtered",
+    "temp": "data/temp"
+  },
+  "filter_column": "SitusStateCode",
+  "file_delimiter": "\t",
+  "schedule": {
+    "daily_time": "02:00",
+    "timezone": "UTC"
+  }
+}
