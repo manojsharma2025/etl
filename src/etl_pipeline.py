@@ -31,8 +31,8 @@ class AttomETLPipeline:
         working_dirs = self.config_loader.get_working_directories()
         
         ftp_config = self.config_loader.get_ftp_config()
-        ftp_config['download_dir'] = working_dirs.get('downloads', '/Outgoing')
-        self.downloader = FTPDownloader(self.logger, ftp_config)
+        ftp_config['download_dir'] = working_dirs.get('downloads', 'data/downloads')
+        self.downloader = FTPDownloader(self.logger, ftp_config, states=self.states)
         
         filter_config = {
             'extracted_dir': working_dirs.get('extracted', 'data/extracted'),

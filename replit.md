@@ -85,10 +85,18 @@ View logs in the `logs/` directory or check the console output in the Replit int
 
 ## Recent Changes
 
+- 2025-10-30: Enhanced FTP folder browsing and credential management
+  - Updated config_loader.py to ONLY read credentials from .env file (no fallback to config.json)
+  - Enhanced ftp_downloader.py with folder browsing capability and state-specific file filtering
+  - Updated config.json to use ftp_folder for datasets (Assessor, AVM, etc.)
+  - FTP connection successfully tested with data.attomdata.com
+  - State filtering supports patterns like "_CA_", "_TX_", "_FL_" in filenames
+
 - 2025-10-30: Initial Replit environment setup completed
   - Installed Python 3.11 and all dependencies
   - Created required directories (logs, data subdirectories)
   - Configured workflow for scheduler execution
+  - Fixed read-only filesystem issue by changing downloads path from /Outgoing to data/downloads
   - Setup validation completed successfully
 
 ## User Preferences
