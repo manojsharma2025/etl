@@ -8,19 +8,16 @@
     {
       "name": "Assessor",
       "enabled": true,
-      "ftp_folder": "/Outgoing/Assessor",
-      "description": "Assessor dataset - High Priority"
+      "description": "Assessor dataset (TAXASSESSOR files) - High Priority"
     },
     {
       "name": "AVM",
       "enabled": true,
-      "ftp_folder": "/Outgoing/AVM",
       "description": "AVM dataset - High Priority"
     },
     {
       "name": "PROPERTYTOBOUNDARYMATCH_PARCEL",
       "enabled": true,
-      "ftp_folder": "/Outgoing/PROPERTYTOBOUNDARYMATCH_PARCEL",
       "description": "Property to Boundary Match Parcel - High Priority"
     },
     {
@@ -34,13 +31,11 @@
     {
       "name": "Recorder",
       "enabled": false,
-      "ftp_folder": "/Outgoing/Recorder",
       "description": "Recorder dataset - Lower Priority"
     },
     {
       "name": "PreForeclosure",
       "enabled": false,
-      "ftp_folder": "/Outgoing/PreForeclosure",
       "description": "PreForeclosure dataset - Lower Priority"
     }
   ],
