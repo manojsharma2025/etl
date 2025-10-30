@@ -55,8 +55,10 @@
     }
   ],
   "ftp": {
+    "host": "data.attomdata.com",
     "username": "",
-    "password": ""
+    "password": "",
+    "use_ftps": true
   },
   "spaces": {
     "access_key": "",
