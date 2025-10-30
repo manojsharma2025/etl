@@ -25,11 +25,14 @@ class ConfigLoader:
         with open(self.config_file, 'r') as f:
             config = json.load(f)
         
-        config['spaces']['access_key'] = os.getenv('SPACES_ACCESS_KEY', config['spaces'].get('access_key', ''))
-        config['spaces']['secret_key'] = os.getenv('SPACES_SECRET_KEY', config['spaces'].get('secret_key', ''))
+        # Always read credentials from .env file only, never from config.json
+        config['spaces']['access_key'] = os.getenv('SPACES_ACCESS_KEY', '')
+        config['spaces']['secret_key'] = os.getenv('SPACES_SECRET_KEY', '')
         
-        config['ftp']['username'] = os.getenv('FTP_USERNAME', config['ftp'].get('username', ''))
-        config['ftp']['password'] = os.getenv('FTP_PASSWORD', config['ftp'].get('password', ''))
+        config['ftp']['host'] = os.getenv('FTP_HOSTNAME', config['ftp'].get('host', ''))
+        config['ftp']['username'] = os.getenv('FTP_USERNAME', '')
+        config['ftp']['password'] = os.getenv('FTP_PASSWORD', '')
+        config['ftp']['use_ftps'] = os.getenv('FTP_USE_FTPS', 'true').lower() == 'true'
         
         return config
     
