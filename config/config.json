@@ -8,6 +8,9 @@
     {
       "name": "Assessor",
       "enabled": true,
+  "ftp_folder": "/Outgoing",
+      "allow_parser_only": true,
+      "exclude_states": ["CA"],
       "description": "Assessor dataset (TAXASSESSOR files) - High Priority"
     },
     {
@@ -43,7 +46,8 @@
     "host": "data.attomdata.com",
     "username": "",
     "password": "",
-    "use_ftps": true
+    "use_ftps": true,
+    "save_mode": "local"   
   },
   "spaces": {
     "access_key": "",

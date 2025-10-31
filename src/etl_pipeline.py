@@ -32,7 +32,18 @@ class AttomETLPipeline:
         
         ftp_config = self.config_loader.get_ftp_config()
         ftp_config['download_dir'] = working_dirs.get('downloads', 'data/downloads')
-        self.downloader = FTPDownloader(self.logger, ftp_config, states=self.states)
+
+        # Initialize Spaces uploader first so downloader can optionally upload
+        spaces_config = self.config_loader.get_spaces_config()
+        try:
+            self.uploader = SpacesUploader(self.logger, spaces_config)
+        except Exception as e:
+            # If Spaces is not configured properly, warn but keep running in local-only mode
+            self.logger.warning(f"Spaces uploader could not be initialized: {e}. Continuing in local-only mode.")
+            self.uploader = None
+
+        # Pass the optional uploader to the downloader so it may upload files as they're downloaded
+        self.downloader = FTPDownloader(self.logger, ftp_config, states=self.states, spaces_uploader=self.uploader)
         
         filter_config = {
             'extracted_dir': working_dirs.get('extracted', 'data/extracted'),
@@ -43,8 +54,6 @@ class AttomETLPipeline:
         }
         self.filter = StateFilter(self.logger, filter_config)
         
-        spaces_config = self.config_loader.get_spaces_config()
-        self.uploader = SpacesUploader(self.logger, spaces_config)
     
     def process_dataset(self, dataset_config):
         """

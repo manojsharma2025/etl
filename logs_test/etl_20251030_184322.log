@@ -1,0 +1,4 @@
+2025-10-30 18:43:22 - AttomETL - INFO - Connecting to FTPS server: data.attomdata.com
+2025-10-30 18:43:29 - AttomETL - INFO - Using FTPS (secure) connection
+2025-10-30 18:43:34 - AttomETL - INFO - Found 3 files in /
+2025-10-30 18:43:34 - AttomETL - INFO - Sample files: Incoming, Outgoing, Reports

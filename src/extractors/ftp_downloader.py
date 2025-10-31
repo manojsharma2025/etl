@@ -7,9 +7,17 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 class FTPDownloader:
-    """Handles downloading files from ATTOM FTPS/FTP servers."""
+    """Handles downloading files from ATTOM FTPS/FTP servers.
 
-    def __init__(self, logger, ftp_config, states=None):
+    Supports optional uploading of downloaded files to a DigitalOcean Spaces
+    instance via a provided `spaces_uploader`. The download/save behaviour
+    can be controlled with a `save_mode` setting: 'local' (default), 'both',
+    or 'remote'. When 'both' the file is kept locally and uploaded; when
+    'remote' the file can optionally be deleted locally after upload if
+    `delete_local_after_upload` is True in dataset config.
+    """
+
+    def __init__(self, logger, ftp_config, states=None, spaces_uploader=None):
         """
         Initialize the FTP downloader.
 
@@ -23,6 +31,12 @@ class FTPDownloader:
         self.states = states or []
         self.download_dir = Path(ftp_config.get('download_dir', 'data/downloads'))
         self.download_dir.mkdir(parents=True, exist_ok=True)
+        # Optional Spaces uploader instance (instance of SpacesUploader)
+        self.spaces_uploader = spaces_uploader
+
+        # Default save mode can be provided in ftp_config, but datasets may override
+        # Accepted values: 'local', 'both', 'remote'
+        self.default_save_mode = ftp_config.get('save_mode', 'local')
 
     def _connect(self):
         """Connect to FTP or FTPS server."""
@@ -36,13 +50,24 @@ class FTPDownloader:
 
         self.logger.info(f"Connecting to {'FTPS' if use_ftps else 'FTP'} server: {server}")
 
+        # Try FTPS first (with timeout). If FTPS handshake fails (network/SSL
+        # issues), fall back to plain FTP to avoid hanging indefinitely.
+        timeout = int(self.ftp_config.get('timeout', 30))
+
         if use_ftps:
-            ftp = ftplib.FTP_TLS(server)
-            ftp.login(username, password)
-            ftp.prot_p()  # Secure data connection
-        else:
-            ftp = ftplib.FTP(server)
-            ftp.login(username, password)
+            try:
+                ftp = ftplib.FTP_TLS(host=server, timeout=timeout)
+                ftp.login(username, password)
+                ftp.prot_p()  # Secure data connection
+                self.logger.info("Using FTPS (secure) connection")
+                return ftp
+            except Exception as e:
+                self.logger.warning(f"FTPS connection failed ({e}), falling back to plain FTP")
+
+        # Plain FTP fallback
+        ftp = ftplib.FTP(host=server, timeout=timeout)
+        ftp.login(username, password)
+        self.logger.info("Using plain FTP connection")
 
         self.logger.info("Connected successfully to FTP server")
         return ftp
@@ -61,6 +86,10 @@ class FTPDownloader:
             ftp.cwd(folder_path)
             files = ftp.nlst()
             self.logger.info(f"Found {len(files)} files in {folder_path}")
+            # Log a sample of returned file names to help debugging when root contains many files
+            sample = files[:50]
+            if sample:
+                self.logger.info(f"Sample files: {', '.join(sample[:10])}{'...' if len(sample)>10 else ''}")
             return files
         except Exception as e:
             self.logger.error(f"Error listing files in {folder_path}: {e}")
@@ -85,39 +114,75 @@ class FTPDownloader:
         }
         return parser_map.get(dataset_name, dataset_name.upper())
 
-    def _filter_files_by_dataset(self, files, dataset_name):
+    def _filter_files_by_dataset(self, files, dataset_config):
         """
-        Filter files by state codes and parser type.
+        Filter files by parser type and optionally by state codes.
+
         File pattern: PREFIX_STATECODE_PARSER_SERIES_SEQUENCE.zip
         Example: 1PARKPLACE_CA_RECORDER_0001_001.zip
 
+        Dataset config may include:
+          - 'ignore_states_for_download': bool (if True, match parser only)
+          - 'parser_keyword': str (override parser keyword detection)
+
         Args:
             files: List of file names
-            dataset_name: Name of the dataset to filter for
-        Returns:
-            List of files matching state codes and parser type
-        """
-        if not self.states:
-            return files
+            dataset_config: Dataset configuration dict (used to derive dataset name and flags)
 
-        parser_keyword = self._get_parser_keyword(dataset_name)
+        Returns:
+            List of files matching parser (and optionally state codes)
+        """
+        dataset_name = dataset_config.get('name')
+        ignore_states = bool(dataset_config.get('ignore_states_for_download', False))
+        parser_keyword = (dataset_config.get('parser_keyword') or self._get_parser_keyword(dataset_name)).upper()
+
+        # Prepare uppercase states list for comparisons
+        states_upper = [s.upper() for s in self.states]
+        # Per-dataset opt-in to accept parser-only files when no state token is present
+        allow_parser_only = bool(dataset_config.get('allow_parser_only', False))
+
         filtered = []
-        
-        self.logger.info(f"Filtering files for dataset '{dataset_name}' (parser: {parser_keyword}) and states: {', '.join(self.states)}")
+        self.logger.info(f"Filtering files for dataset '{dataset_name}' (parser: {parser_keyword}) ignore_states={ignore_states}")
 
         for file in files:
             file_upper = file.upper()
-            parts = file_upper.split('_')
-            
-            if len(parts) < 3:
+            parts = file_upper.replace('.', '_').replace('-', '_').split('_')
+
+            # Determine parser presence: either a dedicated part equals parser_keyword
+            # or the parser keyword appears anywhere in the filename
+            parser_in_parts = parser_keyword in parts
+            parser_in_name = parser_keyword in file_upper
+
+            # Determine state presence: check if any part equals any configured state
+            state_found = None
+            for p in parts:
+                if p in states_upper:
+                    state_found = p
+                    break
+
+            # Per-dataset exclusion list for states (e.g., exclude CA)
+            exclude_states_upper = [s.upper() for s in dataset_config.get('exclude_states', [])]
+            if state_found and state_found in exclude_states_upper:
+                self.logger.info(f"Skipping {file} because state {state_found} is excluded for dataset {dataset_name}")
                 continue
-            
-            state_code = parts[1] if len(parts) > 1 else ''
-            parser_type = parts[2] if len(parts) > 2 else ''
-            
-            if state_code in [s.upper() for s in self.states] and parser_type == parser_keyword:
-                filtered.append(file)
-                self.logger.info(f"Matched: {file} (state={state_code}, parser={parser_type})")
+
+            # If ignoring states, require only parser match
+            if ignore_states:
+                if parser_in_parts or parser_in_name:
+                    filtered.append(file)
+                    self.logger.info(f"Matched (parser only): {file}")
+                continue
+
+            # Otherwise prefer parser+state match. If parser is present but no state
+            # token is found, only accept the file when the dataset explicitly
+            # allows parser-only matches via `allow_parser_only`.
+            if (parser_in_parts or parser_in_name):
+                if state_found:
+                    filtered.append(file)
+                    self.logger.info(f"Matched: {file} (state={state_found}, parser present)")
+                elif allow_parser_only:
+                    filtered.append(file)
+                    self.logger.info(f"Matched (parser present, no state token, allow_parser_only=True): {file}")
 
         self.logger.info(f"Filtered {len(filtered)} files out of {len(files)} for dataset {dataset_name}")
         return filtered
@@ -132,20 +197,165 @@ class FTPDownloader:
         Returns:
             True if successful, False otherwise
         """
-        try:
-            self.logger.info(f"Downloading via HTTP: {url}")
-            response = requests.get(url, stream=True, timeout=300)
-            response.raise_for_status()
-            
-            with open(local_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            
-            self.logger.info(f"Downloaded via HTTP: {local_path}")
-            return True
-        except Exception as e:
-            self.logger.error(f"HTTP download failed for {url}: {e}")
-            return False
+        # Deprecated thin download — kept for compatibility but prefer the
+        # resumable version implemented below.
+        return self._download_http_file_with_retries(url, local_path)
+
+    def _download_http_file_with_retries(self, url, local_path, retries=3, timeout=300):
+        """Download an HTTP/HTTPS file with retries and resume support.
+
+        Uses a temporary .part file and Range requests to resume interrupted
+        downloads when supported by the server.
+        """
+        self.logger.info(f"Downloading via HTTP (resumable): {url}")
+        temp_path = local_path.with_name(local_path.name + '.part')
+        attempt = 0
+
+        while attempt < retries:
+            attempt += 1
+            try:
+                headers = {}
+                mode = 'wb'
+                existing_size = 0
+                if temp_path.exists():
+                    existing_size = temp_path.stat().st_size
+                    if existing_size > 0:
+                        headers['Range'] = f'bytes={existing_size}-'
+                        mode = 'ab'
+
+                with requests.get(url, stream=True, timeout=timeout, headers=headers) as r:
+                    r.raise_for_status()
+                    # If server returned 200 for a Range request, we should
+                    # handle accordingly; we simply append when mode=='ab'.
+                    with open(temp_path, mode) as f:
+                        for chunk in r.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+
+                # rename temp to final
+                temp_path.replace(local_path)
+                self.logger.info(f"Downloaded via HTTP: {local_path}")
+                return True
+
+            except Exception as e:
+                self.logger.warning(f"HTTP download attempt {attempt}/{retries} failed for {url}: {e}")
+                # wait a bit before retrying
+                time.sleep(min(5 * attempt, 30))
+                continue
+
+        self.logger.error(f"HTTP download failed after {retries} attempts: {url}")
+        # cleanup temp? keep for resume later
+        return False
+
+    def _upload_to_spaces(self, local_path, dataset_name, parser_keyword, make_public=False):
+        """Upload a single local file to Spaces under outgoing/<parser>/<dataset>.
+
+        Returns the public URL on success, or raises on failure.
+        """
+        if not self.spaces_uploader:
+            raise RuntimeError("Spaces uploader not configured")
+        local_file = Path(local_path)
+        # Use outgoing/<parser>/<dataset> as requested (no leading slash)
+        remote_prefix = f"outgoing/{parser_keyword}/{dataset_name}"
+        remote_path = f"{remote_prefix}/{local_file.name}"
+
+        self.logger.info(f"Uploading {local_file.name} to Spaces at {remote_path}")
+        url = self.spaces_uploader.upload_file(local_file, remote_path, make_public=make_public)
+        return url
+
+    def _download_ftp_file_with_retries(self, remote_name, local_path, ftp_folder='/', retries=3, blocksize=8192):
+        """Download a file from FTP with resume and retries.
+
+        remote_name: filename relative to current ftp cwd or absolute
+        local_path: Path to save file locally
+        ftp_folder: folder to cwd into before downloading (used on reconnect)
+        """
+        temp_path = local_path.with_name(local_path.name + '.part')
+        attempt = 0
+
+        # allow override of retries via config
+        cfg_retries = int(self.ftp_config.get('retries', self.ftp_config.get('ftp_retries', retries)))
+        use_retries = cfg_retries if cfg_retries and cfg_retries > 0 else retries
+
+        # larger default blocksize for faster transfers
+        blocksize = int(self.ftp_config.get('blocksize', blocksize))
+
+        while attempt < use_retries:
+            attempt += 1
+            ftp = None
+            try:
+                ftp = self._connect()
+                ftp.set_pasv(True)
+                # ensure socket timeout is reasonable for long transfers
+                sock_timeout = int(self.ftp_config.get('transfer_timeout', self.ftp_config.get('timeout', 60)))
+                try:
+                    if hasattr(ftp, 'sock') and ftp.sock:
+                        ftp.sock.settimeout(sock_timeout)
+                except Exception:
+                    pass
+
+                try:
+                    ftp.cwd(ftp_folder)
+                except Exception:
+                    # ignore if cannot cwd
+                    pass
+
+                existing_size = temp_path.stat().st_size if temp_path.exists() else 0
+
+                if existing_size > 0:
+                    self.logger.info(f"Resuming FTP download for {remote_name} at byte {existing_size}")
+                    mode = 'ab'
+                    rest = existing_size
+                else:
+                    mode = 'wb'
+                    rest = None
+
+                bytes_written = existing_size
+
+                with open(temp_path, mode) as f:
+                    def callback(data):
+                        nonlocal bytes_written
+                        f.write(data)
+                        bytes_written += len(data)
+                        # log periodically
+                        if bytes_written % (1024*1024) < len(data):
+                            self.logger.info(f"Downloading {remote_name}: {bytes_written} bytes")
+
+                    # Use retrbinary with rest to resume; many servers support REST
+                    ftp.retrbinary(f"RETR {remote_name}", callback, blocksize, rest)
+
+                # move temp to final
+                temp_path.replace(local_path)
+                if ftp:
+                    try:
+                        ftp.quit()
+                    except Exception:
+                        pass
+                self.logger.info(f"Downloaded via FTP: {local_path}")
+                return True
+
+            except (socket.timeout, ftplib.error_temp, OSError) as e:
+                self.logger.warning(f"FTP download attempt {attempt}/{use_retries} failed for {remote_name}: {e}")
+                try:
+                    if ftp:
+                        ftp.quit()
+                except Exception:
+                    pass
+                # exponential backoff (cap 60s)
+                time.sleep(min(5 * attempt, 60))
+                continue
+            except Exception as e:
+                self.logger.warning(f"FTP download attempt {attempt}/{use_retries} failed for {remote_name}: {e}")
+                try:
+                    if ftp:
+                        ftp.quit()
+                except Exception:
+                    pass
+                time.sleep(min(5 * attempt, 60))
+                continue
+
+        self.logger.error(f"FTP download failed after {use_retries} attempts: {remote_name}")
+        return False
 
     def download_dataset(self, dataset_config):
         """
@@ -159,8 +369,12 @@ class FTPDownloader:
         """
         dataset_name = dataset_config.get('name')
         remote_urls = dataset_config.get('urls', [])
-        ftp_folder = dataset_config.get('ftp_folder', '/Outgoing')
+        ftp_folder = dataset_config.get('ftp_folder', '/') #/Outgoing
         downloaded_files = []
+
+        # Determine save mode for this dataset (dataset overrides ftp default)
+        save_mode = dataset_config.get('save_mode', self.default_save_mode)
+        delete_local_after_upload = dataset_config.get('delete_local_after_upload', False)
 
         if remote_urls:
             self.logger.info(f"Downloading from direct URLs for dataset: {dataset_name}")
@@ -169,20 +383,58 @@ class FTPDownloader:
                 local_path = self.download_dir / file_name
                 
                 if url.startswith(('http://', 'https://')):
-                    if self._download_http_file(url, local_path):
+                    if local_path.exists():
+                        self.logger.info(f"Skipping download, already exists: {local_path}")
                         downloaded_files.append(local_path)
+                    else:
+                        if self._download_http_file(url, local_path):
+                            downloaded_files.append(local_path)
+                        # Optionally upload to Spaces
+                        if self.spaces_uploader and save_mode in ('both', 'remote'):
+                            try:
+                                parser_keyword = self._get_parser_keyword(dataset_name)
+                                self._upload_to_spaces(local_path, dataset_name, parser_keyword)
+                                if save_mode == 'remote' and delete_local_after_upload:
+                                    try:
+                                        local_path.unlink()
+                                        self.logger.info(f"Deleted local file after upload: {local_path}")
+                                    except Exception:
+                                        self.logger.warning(f"Failed to delete local file: {local_path}")
+                            except Exception as e:
+                                self.logger.error(f"Upload to Spaces failed for {local_path}: {e}")
                 elif url.startswith('ftp://'):
                     parsed = urlparse(url)
                     ftp_path = parsed.path
                     self.logger.info(f"Downloading FTP file: {ftp_path}")
                     try:
-                        ftp = self._connect()
-                        ftp.set_pasv(True)
-                        with open(local_path, "wb") as f:
-                            ftp.retrbinary(f"RETR {ftp_path}", f.write)
-                        ftp.quit()
-                        self.logger.info(f"Downloaded: {local_path}")
-                        downloaded_files.append(local_path)
+                        # Use the resumable FTP helper which will create its own
+                        # connection and attempt retries. Split the ftp_path into
+                        # folder and filename so the helper can cwd appropriately.
+                        ftp_folder_for_download = os.path.dirname(ftp_path) or '/'
+                        remote_name = os.path.basename(ftp_path)
+
+                        if local_path.exists():
+                            self.logger.info(f"Skipping download, already exists: {local_path}")
+                            downloaded_files.append(local_path)
+                        else:
+                            success = self._download_ftp_file_with_retries(remote_name, local_path, ftp_folder=ftp_folder_for_download)
+                            if success:
+                                downloaded_files.append(local_path)
+                            else:
+                                self.logger.error(f"Failed to download FTP file after retries: {ftp_path}")
+                        # Optionally upload to Spaces
+                        if self.spaces_uploader and save_mode in ('both', 'remote'):
+                            try:
+                                parser_keyword = self._get_parser_keyword(dataset_name)
+                                self._upload_to_spaces(local_path, dataset_name, parser_keyword)
+                                if save_mode == 'remote' and delete_local_after_upload:
+                                    try:
+                                        local_path.unlink()
+                                        self.logger.info(f"Deleted local file after upload: {local_path}")
+                                    except Exception:
+                                        self.logger.warning(f"Failed to delete local file: {local_path}")
+                            except Exception as e:
+                                self.logger.error(f"Upload to Spaces failed for {local_path}: {e}")
                     except Exception as e:
                         self.logger.error(f"FTP download failed for {url}: {e}")
                 else:
@@ -195,18 +447,64 @@ class FTPDownloader:
             ftp = self._connect()
             ftp.set_pasv(True)
             
-            all_files = self._list_files_in_folder(ftp, ftp_folder)
-            filtered_files = self._filter_files_by_dataset(all_files, dataset_name)
+            # Try to list only files that include the parser keyword to avoid huge root listings
+            try:
+                ftp.cwd(ftp_folder)
+            except Exception as e:
+                self.logger.warning(f"Failed to change to FTP folder {ftp_folder}: {e}")
+
+            dataset_name = dataset_config.get('name')
+            parser_keyword = (dataset_config.get('parser_keyword') or self._get_parser_keyword(dataset_name)).upper()
+
+            all_files = []
+            try:
+                # NLST pattern search (may be supported by the server) to find parser files quickly
+                pattern = f"*{parser_keyword}*"
+                self.logger.info(f"Listing FTP files with pattern: {pattern}")
+                all_files = ftp.nlst(pattern)
+                self.logger.info(f"Found {len(all_files)} files matching pattern {pattern}")
+                if all_files:
+                    # pass through filter for any additional checks (states, etc.)
+                    filtered_files = self._filter_files_by_dataset(all_files, dataset_config)
+                else:
+                    # fallback to full listing if pattern returned nothing
+                    self.logger.info("Pattern listing returned nothing; falling back to full listing")
+                    all_files = self._list_files_in_folder(ftp, ftp_folder)
+                    filtered_files = self._filter_files_by_dataset(all_files, dataset_config)
+            except Exception as e:
+                self.logger.warning(f"Pattern listing failed ({e}); falling back to full listing")
+                all_files = self._list_files_in_folder(ftp, ftp_folder)
+                filtered_files = self._filter_files_by_dataset(all_files, dataset_config)
 
             for file_name in filtered_files:
                 local_path = self.download_dir / file_name
                 self.logger.info(f"Downloading {ftp_folder}/{file_name} to {local_path}")
 
                 try:
-                    with open(local_path, "wb") as f:
-                        ftp.retrbinary(f"RETR {file_name}", f.write)
-                    self.logger.info(f"Downloaded: {local_path}")
-                    downloaded_files.append(local_path)
+                    if local_path.exists():
+                        self.logger.info(f"Skipping download, already exists: {local_path}")
+                        downloaded_files.append(local_path)
+                    else:
+                        success = self._download_ftp_file_with_retries(file_name, local_path, ftp_folder=ftp_folder)
+                        if success:
+                            self.logger.info(f"Downloaded: {local_path}")
+                            downloaded_files.append(local_path)
+                        else:
+                            self.logger.error(f"Failed to download: {file_name}")
+                            continue
+                    # Optionally upload to Spaces
+                    if self.spaces_uploader and save_mode in ('both', 'remote'):
+                        try:
+                            parser_keyword = self._get_parser_keyword(dataset_name)
+                            self._upload_to_spaces(local_path, dataset_name, parser_keyword)
+                            if save_mode == 'remote' and delete_local_after_upload:
+                                try:
+                                    local_path.unlink()
+                                    self.logger.info(f"Deleted local file after upload: {local_path}")
+                                except Exception:
+                                    self.logger.warning(f"Failed to delete local file: {local_path}")
+                        except Exception as e:
+                            self.logger.error(f"Upload to Spaces failed for {local_path}: {e}")
                 except Exception as e:
                     self.logger.error(f"Error downloading {file_name}: {e}")
                     continue
