@@ -6,6 +6,7 @@ from datetime import datetime
 from utils.logger import ETLLogger
 from utils.config_loader import ConfigLoader
 from extractors.ftp_downloader import FTPDownloader
+from extractors.extractor import Extractor
 from transformers.state_filter import StateFilter
 from loaders.spaces_uploader import SpacesUploader
 
@@ -53,6 +54,10 @@ class AttomETLPipeline:
             'delimiter': self.config_loader.get_file_delimiter()
         }
         self.filter = StateFilter(self.logger, filter_config)
+
+        # Extractor: move downloaded ZIP into the extracted area and unzip
+        extracted_dir = working_dirs.get('extracted', 'data/extracted')
+        self.extractor = Extractor(self.logger, extracted_dir)
         
     
     def process_dataset(self, dataset_config):
@@ -85,11 +90,16 @@ class AttomETLPipeline:
             
             for zip_file in downloaded_files:
                 try:
-                    extracted_files = self.filter.extract_zip(zip_file)
+                    # Move downloaded zip into extracted area and extract
+                    extracted_files = self.extractor.move_and_extract(zip_file)
                     
                     for extracted_file in extracted_files:
                         if extracted_file.suffix.lower() in ['.txt', '.csv']:
-                            filtered_files = self.filter.filter_multiple_states(extracted_file)
+                            # Use per-dataset states if provided in dataset config.
+                            # Prefer `exstates` (explicit per-dataset states) for clarity,
+                            # fall back to legacy `states` key, then pipeline/global states.
+                            dataset_states = dataset_config.get('exstates') or dataset_config.get('states') or self.states
+                            filtered_files = self.filter.filter_multiple_states(extracted_file, states=dataset_states)
                             
                             if filtered_files:
                                 zip_name = f"{dataset_name}_{extracted_file.stem}_{datetime.now().strftime('%Y%m%d')}.zip"

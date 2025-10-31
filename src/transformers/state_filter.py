@@ -122,25 +122,33 @@ class StateFilter:
             self.logger.error(f"Failed to filter {input_file.name}: {e}")
             raise
     
-    def filter_multiple_states(self, input_file):
+    def filter_multiple_states(self, input_file, states=None):
         """
-        Filter a TXT file for all configured states
-        
+        Filter a TXT file for multiple states.
+
         Args:
             input_file: Path to input TXT file
-        
+            states: Optional list of state codes to filter for. If omitted,
+                    uses the global states configured for this filter instance.
+
         Returns:
             List of filtered file paths (one per state)
         """
+        states_to_use = states if states is not None else self.states
+
+        if not states_to_use:
+            self.logger.warning(f"No states configured for filtering {input_file.name}; skipping")
+            return []
+
         filtered_files = []
-        
-        for state_code in self.states:
+
+        for state_code in states_to_use:
             try:
                 filtered_file = self.filter_file_by_state(input_file, state_code)
                 filtered_files.append(filtered_file)
             except Exception as e:
                 self.logger.error(f"Failed to filter {input_file.name} for state {state_code}: {e}")
-        
+
         return filtered_files
     
     def compress_to_zip(self, files, output_zip_name):
