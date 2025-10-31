@@ -8,7 +8,7 @@
     {
       "name": "Assessor",
       "enabled": true,
-  "ftp_folder": "/Outgoing",
+      "ftp_folder": "/Outgoing",
       "allow_parser_only": true,
       "exclude_states": ["CA"],
       "description": "Assessor dataset (TAXASSESSOR files) - High Priority"
