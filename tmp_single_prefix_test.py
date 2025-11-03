@@ -33,7 +33,9 @@ def run_test():
         'enabled': True,
         'filtered_zip_prefix': '1PP_FILTERED_',
         # provide per-dataset states if needed, otherwise pipeline global states used
-        'exstates': ['CA', 'TX']
+        'exstates': ['CA', 'TX'],
+        # post process behavior: 'move' will move filtered files to data/processed
+        'post_process_filtered': 'move'
     }
 
     result = pipeline.process_dataset(dataset_cfg)

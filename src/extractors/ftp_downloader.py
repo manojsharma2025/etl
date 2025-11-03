@@ -114,6 +114,23 @@ class FTPDownloader:
         }
         return parser_map.get(dataset_name, dataset_name.upper())
 
+    def _filename_has_excluded_state(self, file_name, dataset_config):
+        """
+        Check if the provided filename contains any state listed in the
+        dataset's `exclude_states` list. Matching is done against filename
+        parts (case-insensitive) and returns True when an excluded state is found.
+        """
+        exclude_states = [s.upper() for s in dataset_config.get('exclude_states', [])]
+        if not exclude_states:
+            return False
+
+        file_upper = file_name.upper()
+        parts = file_upper.replace('.', '_').replace('-', '_').split('_')
+        for p in parts:
+            if p in exclude_states:
+                return True
+        return False
+
     def _filter_files_by_dataset(self, files, dataset_config):
         """
         Filter files by parser type and optionally by state codes.
@@ -437,6 +454,25 @@ class FTPDownloader:
                     downloaded_files.append(local_path)
                     continue
 
+                # Guard: if dataset produced filtered zips and those are uploaded
+                # to an outgoing FTP folder, avoid re-downloading those filtered
+                # zips back into the downloads directory. This prevents the
+                # upload->download loop when outgoing and incoming folders overlap.
+                filtered_prefix = dataset_config.get('filtered_zip_prefix')
+                if filtered_prefix:
+                    try:
+                        if file_name.upper().startswith(filtered_prefix.upper()):
+                            self.logger.info(f"Skipping download of filtered/outgoing file: {file_name} (matches filtered_zip_prefix)")
+                            continue
+                    except Exception:
+                        # Be defensive: if something odd happens, fall through to normal behaviour
+                        pass
+
+                # Additional guard: skip files that are explicitly excluded by dataset
+                if self._filename_has_excluded_state(file_name, dataset_config):
+                    self.logger.info(f"Skipping download because filename contains excluded state for dataset {dataset_name}: {file_name}")
+                    continue
+
                 if url.startswith(('http://', 'https://')):
                     # proceed to download (resumable)
                     if self._download_http_file(url, local_path):
@@ -464,6 +500,11 @@ class FTPDownloader:
                         # folder and filename so the helper can cwd appropriately.
                         ftp_folder_for_download = os.path.dirname(ftp_path) or '/'
                         remote_name = os.path.basename(ftp_path)
+
+                        # Additional guard: skip files that are explicitly excluded by dataset
+                        if self._filename_has_excluded_state(file_name, dataset_config):
+                            self.logger.info(f"Skipping download because filename contains excluded state for dataset {dataset_name}: {file_name}")
+                            continue
 
                         # For FTP URLs, also check filename-only existence using
                         # the precomputed set (case-insensitive).
@@ -535,7 +576,24 @@ class FTPDownloader:
                 self.logger.info(f"Downloading {ftp_folder}/{file_name} to {local_path}")
 
                 try:
+                    # Guard: avoid downloading filtered zip files that were
+                    # produced by this pipeline and uploaded to the outgoing
+                    # FTP folder. Use the dataset's filtered_zip_prefix config
+                    # when present.
+                    filtered_prefix = dataset_config.get('filtered_zip_prefix')
+                    if filtered_prefix:
+                        try:
+                            if file_name.upper().startswith(filtered_prefix.upper()):
+                                self.logger.info(f"Skipping download of filtered/outgoing file: {file_name} (matches filtered_zip_prefix)")
+                                continue
+                        except Exception:
+                            pass
                     # Filename-only existence check (use precomputed set, case-insensitive).
+                    # Additional guard: skip files that are explicitly excluded by dataset
+                    if self._filename_has_excluded_state(file_name, dataset_config):
+                        self.logger.info(f"Skipping download because filename contains excluded state for dataset {dataset_name}: {file_name}")
+                        continue
+
                     if file_name.lower() in existing_names:
                         # NOTE: Previously we compared remote size vs local size and
                         # re-downloaded when they differed. To match current request

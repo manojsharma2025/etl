@@ -1,15 +1,17 @@
 {
   "states": [
-    "CA",
-    "TX",
-    "FL"
-  ],
+      "TX"
+    ],
   "datasets": [
     {
       "name": "Assessor",
       "enabled": true,
       "ftp_folder": "/Outgoing",
       "filtered_zip_prefix": "1PP_FILTERED_",
+      "post_process_downloaded": "move",
+      "post_process_filtered": "keep",
+      "filter_ftp_upload": true,
+      "filter_ftp_action": "copy",
       "allow_parser_only": true,
       "exclude_states": ["CA"],
       "description": "Assessor dataset (TAXASSESSOR files) - High Priority"

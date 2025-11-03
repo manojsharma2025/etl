@@ -195,3 +195,17 @@ None specified yet.
 - All temporary files are cleaned up after processing to save disk space
 - Logs are preserved locally and uploaded to Spaces
 - The .NET Assessor application can directly consume the filtered ZIPs from Spaces
+
+What changed
+
+config.json (Assessor dataset): set "post_process_downloaded" to "move" so processed downloaded ZIPs are moved into processed after extraction.
+Updated the internal todo list to record this change as completed.
+Behavior now
+
+If post_process_downloaded == "move": downloaded ZIP will be moved from downloads → processed.
+Otherwise (not "move"): pipeline will delete the downloaded ZIP after processing (default delete).
+Note: the pipeline also supports "copy" and "delete" — you've chosen "move" which will remove the original after moving.
+Would you like me to:
+
+
+filter_ftp_action set  move/copy

@@ -1,5 +1,6 @@
 import time
 import os
+import shutil
 from pathlib import Path
 from datetime import datetime
 
@@ -9,6 +10,7 @@ from extractors.ftp_downloader import FTPDownloader
 from extractors.extractor import Extractor
 from transformers.state_filter import StateFilter
 from loaders.spaces_uploader import SpacesUploader
+from loaders.ftp_uploader import FTPUploader
 
 
 class AttomETLPipeline:
@@ -45,6 +47,13 @@ class AttomETLPipeline:
 
         # Pass the optional uploader to the downloader so it may upload files as they're downloaded
         self.downloader = FTPDownloader(self.logger, ftp_config, states=self.states, spaces_uploader=self.uploader)
+
+        # FTP uploader (for pushing filtered zips back to an FTP outgoing folder)
+        try:
+            self.ftp_uploader = FTPUploader(self.logger, ftp_config)
+        except Exception as e:
+            self.logger.warning(f"FTP uploader not initialized: {e}. FTP uploads will be disabled.")
+            self.ftp_uploader = None
         
         filter_config = {
             'extracted_dir': working_dirs.get('extracted', 'data/extracted'),
@@ -58,6 +67,9 @@ class AttomETLPipeline:
         # Extractor: move downloaded ZIP into the extracted area and unzip
         extracted_dir = working_dirs.get('extracted', 'data/extracted')
         self.extractor = Extractor(self.logger, extracted_dir)
+        # Ensure processed directory exists for optional post-processing of filtered files
+        self.processed_dir = Path(working_dirs.get('processed', 'data/processed'))
+        self.processed_dir.mkdir(parents=True, exist_ok=True)
         
     
     def process_dataset(self, dataset_config):
@@ -130,13 +142,21 @@ class AttomETLPipeline:
                                 # the ZIP was successfully created and has non-zero size.
                                 if filtered_zip and filtered_zip.exists() and filtered_zip.stat().st_size > 0:
                                     self.logger.info(f"Created filtered ZIP: {filtered_zip.name} (size={filtered_zip.stat().st_size})")
+                                    # Decide whether to delete or move intermediate filtered files
+                                    action = dataset_config.get('post_process_filtered', 'delete')
                                     for filtered_file in filtered_files:
                                         try:
-                                            if filtered_file.exists():
+                                            if not filtered_file.exists():
+                                                continue
+                                            if action == 'move':
+                                                dest = self.processed_dir / filtered_file.name
+                                                shutil.move(str(filtered_file), str(dest))
+                                                self.logger.info(f"Moved intermediate filtered file to processed: {dest.name}")
+                                            else:
                                                 filtered_file.unlink()
                                                 self.logger.debug(f"Deleted intermediate filtered file: {filtered_file.name}")
                                         except Exception as e:
-                                            self.logger.warning(f"Failed to delete intermediate filtered file {filtered_file}: {e}")
+                                            self.logger.warning(f"Failed to post-process intermediate filtered file {filtered_file}: {e}")
                                 else:
                                     self.logger.error(f"Filtered ZIP was not created or is empty: {zip_name}; keeping intermediate files for inspection")
 
@@ -146,18 +166,103 @@ class AttomETLPipeline:
                             extracted_file.unlink()
                     
                     if zip_file.exists():
-                        zip_file.unlink()
+                        # Post-process the original downloaded ZIP according to
+                        # dataset configuration. Options:
+                        #   - 'delete' (default): remove the downloaded ZIP
+                        #   - 'move': move the downloaded ZIP to processed_dir
+                        #   - 'copy': copy the downloaded ZIP to processed_dir and keep original
+                        dl_action = dataset_config.get('post_process_downloaded', 'delete')
+                        try:
+                            if dl_action == 'move':
+                                dest = self.processed_dir / zip_file.name
+                                shutil.move(str(zip_file), str(dest))
+                                self.logger.info(f"Moved downloaded ZIP to processed: {dest}")
+                            elif dl_action == 'copy':
+                                dest = self.processed_dir / zip_file.name
+                                shutil.copy2(str(zip_file), str(dest))
+                                self.logger.info(f"Copied downloaded ZIP to processed: {dest}")
+                            else:
+                                zip_file.unlink()
+                                self.logger.debug(f"Deleted downloaded ZIP: {zip_file.name}")
+                        except Exception as e:
+                            self.logger.warning(f"Failed to post-process downloaded ZIP {zip_file}: {e}")
                         
                 except Exception as e:
                     self.logger.error(f"Error processing {zip_file.name}: {e}")
             
             uploaded_urls = []
             if all_filtered_zips:
-                uploaded_urls = self.uploader.upload_multiple_files(all_filtered_zips)
+                # Upload to Spaces if configured
+                uploaded_urls = []
+                spaces_map = {}
+                if self.uploader:
+                    try:
+                        uploaded_urls = self.uploader.upload_multiple_files(all_filtered_zips)
+                        # Map local path -> upload success (True if a URL was returned)
+                        for p, url in zip(all_filtered_zips, uploaded_urls):
+                            spaces_map[str(p)] = bool(url)
+                    except Exception as e:
+                        self.logger.warning(f"Spaces upload failed: {e}")
+
+                # Additionally, upload to dataset FTP folder if configured
+                # Controlled by dataset flag `filter_ftp_upload`. If true,
+                # the pipeline will attempt to upload filtered zips to the
+                # specified `ftp_folder`. If false (default), FTP upload is skipped.
+                ftp_folder = dataset_config.get('ftp_folder')
+                ftp_map = {}
+                if dataset_config.get('filter_ftp_upload', False) and ftp_folder and self.ftp_uploader:
+                    try:
+                        ftp_results = self.ftp_uploader.upload_multiple_files(all_filtered_zips, remote_folder=ftp_folder)
+                        # Log ftp upload results and build map
+                        for r in ftp_results:
+                            path = r.get('path')
+                            ok = r.get('success', False)
+                            ftp_map[path] = ok
+                            if ok:
+                                self.logger.info(f"Uploaded to FTP: {path}")
+                            else:
+                                self.logger.warning(f"Failed FTP upload: {path}")
+                    except Exception as e:
+                        self.logger.warning(f"FTP upload failed: {e}")
                 
+                # Decide whether to delete local filtered zips. The dataset may
+                # request FTP uploads via `filter_ftp_upload`. Additionally,
+                # the dataset can control whether the FTP upload should behave
+                # like a 'copy' (upload and keep local) or a 'move' (upload and
+                # remove local copy) via `filter_ftp_action` which accepts
+                # values 'copy' or 'move' (default: 'copy').
+                require_ftp = dataset_config.get('filter_ftp_upload', False)
+                ftp_action = dataset_config.get('filter_ftp_action', 'copy')  # 'copy'|'move'
+
                 for filtered_zip in all_filtered_zips:
-                    if filtered_zip.exists():
-                        filtered_zip.unlink()
+                    try:
+                        pstr = str(filtered_zip)
+                        space_ok = spaces_map.get(pstr, False)
+                        ftp_ok = ftp_map.get(pstr, False)
+
+                        # If the dataset explicitly requests FTP move semantics,
+                        # delete the local file only when the FTP upload was
+                        # verified. If the dataset requests 'copy', keep the
+                        # local file even after a verified FTP upload.
+                        should_delete = False
+                        if ftp_action == 'move':
+                            should_delete = bool(ftp_ok)
+                        else:  # 'copy' (default)
+                            if require_ftp:
+                                # FTP is required but action is copy: keep local
+                                should_delete = False
+                            else:
+                                # No FTP requirement: delete if uploaded to
+                                # Spaces or FTP succeeded (legacy behaviour).
+                                should_delete = bool(space_ok or ftp_ok)
+
+                        if should_delete and filtered_zip.exists():
+                            filtered_zip.unlink()
+                            self.logger.debug(f"Deleted filtered ZIP after upload: {filtered_zip.name}")
+                        else:
+                            self.logger.info(f"Keeping filtered ZIP: {filtered_zip.name} (spaces_ok={space_ok}, ftp_ok={ftp_ok}, ftp_action={ftp_action})")
+                    except Exception as e:
+                        self.logger.warning(f"Failed while post-processing filtered ZIP {filtered_zip}: {e}")
             
             duration = time.time() - start_time
             self.logger.log_etl_end(dataset_name, duration)
