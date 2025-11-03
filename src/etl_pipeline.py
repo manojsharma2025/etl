@@ -102,13 +102,45 @@ class AttomETLPipeline:
                             filtered_files = self.filter.filter_multiple_states(extracted_file, states=dataset_states)
                             
                             if filtered_files:
-                                zip_name = f"{dataset_name}_{extracted_file.stem}_{datetime.now().strftime('%Y%m%d')}.zip"
-                                filtered_zip = self.filter.compress_to_zip(filtered_files, zip_name)
+                                # Allow per-dataset prefix for filtered ZIP names. If
+                                # `filtered_zip_prefix` is provided in dataset config,
+                                # use it as the start of the filename. Otherwise fall
+                                # back to the default pattern: {dataset_name}_{stem}_{YYYYMMDD}.zip
+                                prefix = dataset_config.get('filtered_zip_prefix')
+                                date_str = datetime.now().strftime('%Y%m%d')
+                                if prefix:
+                                    # When a prefix is explicitly provided, produce
+                                    # the filename exactly as: {prefix}{stem}.zip
+                                    # (user requested no date appended for prefixed names)
+                                    zip_name = f"{prefix}{extracted_file.stem}.zip"
+                                    self.logger.info(f"Using filtered_zip_prefix for ZIP name: {zip_name}")
+                                else:
+                                    zip_name = f"{dataset_name}_{extracted_file.stem}_{date_str}.zip"
+                                    self.logger.info(f"Using default ZIP naming for ZIP name: {zip_name}")
+
+                                # When a filtered_zip_prefix is provided, also prefix
+                                # the filenames inside the ZIP so contents align with
+                                # the ZIP naming convention expected downstream.
+                                filtered_zip = self.filter.compress_to_zip(
+                                    filtered_files,
+                                    zip_name,
+                                    inner_name_prefix=prefix
+                                )
+                                # Only remove the intermediate filtered files if
+                                # the ZIP was successfully created and has non-zero size.
+                                if filtered_zip and filtered_zip.exists() and filtered_zip.stat().st_size > 0:
+                                    self.logger.info(f"Created filtered ZIP: {filtered_zip.name} (size={filtered_zip.stat().st_size})")
+                                    for filtered_file in filtered_files:
+                                        try:
+                                            if filtered_file.exists():
+                                                filtered_file.unlink()
+                                                self.logger.debug(f"Deleted intermediate filtered file: {filtered_file.name}")
+                                        except Exception as e:
+                                            self.logger.warning(f"Failed to delete intermediate filtered file {filtered_file}: {e}")
+                                else:
+                                    self.logger.error(f"Filtered ZIP was not created or is empty: {zip_name}; keeping intermediate files for inspection")
+
                                 all_filtered_zips.append(filtered_zip)
-                                
-                                for filtered_file in filtered_files:
-                                    if filtered_file.exists():
-                                        filtered_file.unlink()
                         
                         if extracted_file.exists():
                             extracted_file.unlink()
