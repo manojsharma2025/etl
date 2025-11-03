@@ -42,3 +42,8 @@ Thumbs.db
 
 # uv
 uv.lock
+*.zip
+*.rar
+*.7z
+*.tar.gz
+*.csv

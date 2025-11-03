@@ -9,6 +9,7 @@
       "name": "Assessor",
       "enabled": true,
       "ftp_folder": "/Outgoing",
+      "filtered_zip_prefix": "1PP_FILTERED_",
       "allow_parser_only": true,
       "exclude_states": ["CA"],
       "description": "Assessor dataset (TAXASSESSOR files) - High Priority"

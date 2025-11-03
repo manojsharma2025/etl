@@ -263,6 +263,42 @@ class FTPDownloader:
         url = self.spaces_uploader.upload_file(local_file, remote_path, make_public=make_public)
         return url
 
+    def _get_http_remote_size(self, url, timeout=30):
+        try:
+            r = requests.head(url, allow_redirects=True, timeout=timeout)
+            if 'Content-Length' in r.headers:
+                return int(r.headers.get('Content-Length'))
+        except Exception:
+            pass
+        return None
+
+    def _get_ftp_remote_size(self, remote_name, ftp_folder='/', timeout=None):
+        try:
+            ftp = self._connect()
+            if timeout:
+                try:
+                    if hasattr(ftp, 'sock') and ftp.sock:
+                        ftp.sock.settimeout(timeout)
+                except Exception:
+                    pass
+            try:
+                ftp.cwd(ftp_folder)
+            except Exception:
+                pass
+            size = None
+            try:
+                size = ftp.size(remote_name)
+            except Exception:
+                # some servers may not support SIZE on directories; ignore
+                size = None
+            try:
+                ftp.quit()
+            except Exception:
+                pass
+            return size
+        except Exception:
+            return None
+
     def _download_ftp_file_with_retries(self, remote_name, local_path, ftp_folder='/', retries=3, blocksize=8192):
         """Download a file from FTP with resume and retries.
 
@@ -372,6 +408,18 @@ class FTPDownloader:
         ftp_folder = dataset_config.get('ftp_folder', '/') #/Outgoing
         downloaded_files = []
 
+        # Precompute existing filenames in download directory so we strictly
+        # perform filename-only checks (avoid size comparisons which can be
+        # unreliable across OS/filesystems). This set contains only names
+        # (not paths) and is used to skip downloads when a file with the same
+        # filename already exists locally.
+        try:
+            # Store lowercase filenames for case-insensitive matching which is
+            # more robust across platforms where case-sensitivity may differ.
+            existing_names = {p.name.lower() for p in self.download_dir.iterdir() if p.is_file()}
+        except Exception:
+            existing_names = set()
+
         # Determine save mode for this dataset (dataset overrides ftp default)
         save_mode = dataset_config.get('save_mode', self.default_save_mode)
         delete_local_after_upload = dataset_config.get('delete_local_after_upload', False)
@@ -381,14 +429,18 @@ class FTPDownloader:
             for url in remote_urls:
                 file_name = os.path.basename(urlparse(url).path)
                 local_path = self.download_dir / file_name
-                
+
+                # Strict filename-only skip: if a file with the same name
+                # exists in the downloads directory (case-insensitive), skip downloading.
+                if file_name.lower() in existing_names:
+                    self.logger.info(f"Skipping download (filename exists): {local_path} (case-insensitive match)")
+                    downloaded_files.append(local_path)
+                    continue
+
                 if url.startswith(('http://', 'https://')):
-                    if local_path.exists():
-                        self.logger.info(f"Skipping download, already exists: {local_path}")
+                    # proceed to download (resumable)
+                    if self._download_http_file(url, local_path):
                         downloaded_files.append(local_path)
-                    else:
-                        if self._download_http_file(url, local_path):
-                            downloaded_files.append(local_path)
                         # Optionally upload to Spaces
                         if self.spaces_uploader and save_mode in ('both', 'remote'):
                             try:
@@ -413,8 +465,10 @@ class FTPDownloader:
                         ftp_folder_for_download = os.path.dirname(ftp_path) or '/'
                         remote_name = os.path.basename(ftp_path)
 
-                        if local_path.exists():
-                            self.logger.info(f"Skipping download, already exists: {local_path}")
+                        # For FTP URLs, also check filename-only existence using
+                        # the precomputed set (case-insensitive).
+                        if file_name.lower() in existing_names:
+                            self.logger.info(f"Skipping download (filename exists): {local_path} (case-insensitive match)")
                             downloaded_files.append(local_path)
                         else:
                             success = self._download_ftp_file_with_retries(remote_name, local_path, ftp_folder=ftp_folder_for_download)
@@ -481,17 +535,37 @@ class FTPDownloader:
                 self.logger.info(f"Downloading {ftp_folder}/{file_name} to {local_path}")
 
                 try:
-                    if local_path.exists():
-                        self.logger.info(f"Skipping download, already exists: {local_path}")
+                    # Filename-only existence check (use precomputed set, case-insensitive).
+                    if file_name.lower() in existing_names:
+                        # NOTE: Previously we compared remote size vs local size and
+                        # re-downloaded when they differed. To match current request
+                        # behaviour, skip downloads when a file with the same name
+                        # already exists locally (filename-only match).
+                        #
+                        # Uncomment the block below to re-enable size-based checks
+                        # try:
+                        #     remote_size = ftp.size(file_name)
+                        #     local_size = local_path.stat().st_size
+                        #     if remote_size is not None and remote_size == local_size:
+                        #         self.logger.info(f"Skipping download, already exists and size matches: {local_path}")
+                        #         downloaded_files.append(local_path)
+                        #         continue
+                        #     else:
+                        #         self.logger.info(f"Local file exists but size differs (local={local_size} remote={remote_size}); re-downloading: {local_path}")
+                        # except Exception as e:
+                        #     self.logger.warning(f"Could not determine remote size for {file_name}: {e}")
+
+                        self.logger.info(f"Skipping download (filename exists): {local_path} (case-insensitive match)")
+                        downloaded_files.append(local_path)
+                        continue
+
+                    success = self._download_ftp_file_with_retries(file_name, local_path, ftp_folder=ftp_folder)
+                    if success:
+                        self.logger.info(f"Downloaded: {local_path}")
                         downloaded_files.append(local_path)
                     else:
-                        success = self._download_ftp_file_with_retries(file_name, local_path, ftp_folder=ftp_folder)
-                        if success:
-                            self.logger.info(f"Downloaded: {local_path}")
-                            downloaded_files.append(local_path)
-                        else:
-                            self.logger.error(f"Failed to download: {file_name}")
-                            continue
+                        self.logger.error(f"Failed to download: {file_name}")
+                        continue
                     # Optionally upload to Spaces
                     if self.spaces_uploader and save_mode in ('both', 'remote'):
                         try:
