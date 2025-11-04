@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pythonlibs/
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+data/
+
+# Data directories
+data/downloads/*
+data/extracted/*
+data/filtered/*
+data/temp/*
+!data/downloads/.gitkeep
+!data/extracted/.gitkeep
+!data/filtered/.gitkeep
+!data/temp/.gitkeep
+
+# Logs
+logs/*.log
+
+# Configuration
+config/*.env
+config/credentials.json
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# uv
+uv.lock
+*.zip
+*.rar
+*.7z
+*.tar.gz
+*.csvdata/
+logs/
+*.zip
+*.csv
+*.txt
+*.json
