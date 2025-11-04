@@ -5,8 +5,9 @@
   "datasets": [
     {
       "name": "Assessor",
-      "enabled": true,
-      "ftp_folder": "/Outgoing",
+      "enabled": false,
+      "ftp_folder": "/Outgoing/newfolder",
+      "ftp_upload_folder": "/Outgoing/filtered",
       "filtered_zip_prefix": "1PP_FILTERED_",
       "post_process_downloaded": "move",
       "post_process_filtered": "keep",
@@ -18,30 +19,75 @@
     },
     {
       "name": "AVM",
-      "enabled": true,
+      "enabled": false,
+      "ftp_folder": "/Outgoing/newfolder",
+      "ftp_upload_folder": "/Outgoing/filtered",
+      "filtered_zip_prefix": "1PP_FILTERED_",
+      "post_process_downloaded": "move",
+      "post_process_filtered": "keep",
+      "filter_ftp_upload": true,
+      "filter_ftp_action": "copy",
+      "allow_parser_only": true,
+      "exclude_states": ["CA"],
       "description": "AVM dataset - High Priority"
     },
     {
       "name": "PROPERTYTOBOUNDARYMATCH_PARCEL",
-      "enabled": true,
+      "enabled": false,
+      "ftp_folder": "/Outgoing/newfolder",
+      "ftp_upload_folder": "/Outgoing/filtered",
+      "filtered_zip_prefix": "1PP_FILTERED_",
+      "post_process_downloaded": "move",
+      "post_process_filtered": "keep",
+      "filter_ftp_upload": true,
+      "filter_ftp_action": "copy",
+      "allow_parser_only": true,
+      "exclude_states": ["CA"],
       "description": "Property to Boundary Match Parcel - High Priority"
     },
     {
       "name": "Parcel",
       "enabled": true,
+      "ftp_folder": "/Outgoing/newfolder",
+      "ftp_upload_folder": "/Outgoing/filtered",
+      "filtered_zip_prefix": "1PP_FILTERED_",
+      "post_process_downloaded": "move",
+      "post_process_filtered": "keep",
+      "filter_ftp_upload": true,
+      "filter_ftp_action": "copy",
+      "allow_parser_only": true,
+      "exclude_states": ["CA"],
       "urls": [
-        "https://jetstream.example.com/parcel/Parcel_National.zip"
+        "https://depot.jetstream.pro/w74r-fkpb-tejp/download/37831b3e-33e2-579a-9cac-b36a5b18d7d7"
       ],
       "description": "Parcel dataset via Jetstream - High Priority"
     },
     {
       "name": "Recorder",
       "enabled": false,
+      "ftp_folder": "/Outgoing/newfolder",
+      "ftp_upload_folder": "/Outgoing/filtered",
+      "filtered_zip_prefix": "1PP_FILTERED_",
+      "post_process_downloaded": "move",
+      "post_process_filtered": "keep",
+      "filter_ftp_upload": true,
+      "filter_ftp_action": "copy",
+      "allow_parser_only": true,
+      "exclude_states": ["CA"],
       "description": "Recorder dataset - Lower Priority"
     },
     {
       "name": "PreForeclosure",
       "enabled": false,
+      "ftp_folder": "/Outgoing/newfolder",
+      "ftp_upload_folder": "/Outgoing/filtered",
+      "filtered_zip_prefix": "1PP_FILTERED_",
+      "post_process_downloaded": "move",
+      "post_process_filtered": "keep",
+      "filter_ftp_upload": true,
+      "filter_ftp_action": "copy",
+      "allow_parser_only": true,
+      "exclude_states": ["CA"],
       "description": "PreForeclosure dataset - Lower Priority"
     }
   ],

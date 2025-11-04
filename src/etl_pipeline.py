@@ -204,11 +204,11 @@ class AttomETLPipeline:
                     except Exception as e:
                         self.logger.warning(f"Spaces upload failed: {e}")
 
-                # Additionally, upload to dataset FTP folder if configured
+                # Additionally, upload to dataset FTP upload folder if configured
                 # Controlled by dataset flag `filter_ftp_upload`. If true,
                 # the pipeline will attempt to upload filtered zips to the
-                # specified `ftp_folder`. If false (default), FTP upload is skipped.
-                ftp_folder = dataset_config.get('ftp_folder')
+                # specified `ftp_upload_folder`. If false (default), FTP upload is skipped.
+                ftp_folder = dataset_config.get('ftp_upload_folder')
                 ftp_map = {}
                 if dataset_config.get('filter_ftp_upload', False) and ftp_folder and self.ftp_uploader:
                     try:
