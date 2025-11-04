@@ -51,7 +51,7 @@ def main():
             datasets = j.get('datasets', [])
             for d in datasets:
                 if d.get('name') == 'Assessor':
-                    ftp_folder = d.get('ftp_folder', ftp_folder)
+                    ftp_folder = d.get('ftp_upload_folder', ftp_folder)
                     break
     except Exception:
         pass
