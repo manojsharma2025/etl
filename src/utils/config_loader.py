@@ -67,3 +67,16 @@ class ConfigLoader:
     def get_file_delimiter(self):
         """Get the file delimiter (default: tab)"""
         return self.config.get('file_delimiter', '\t')
+        
+    def get_dataset_zip_path(self, dataset_name):
+        """Get custom ZIP path for a dataset if configured.
+        
+        Args:
+            dataset_name: Name of the dataset
+            
+        Returns:
+            Path string if configured in dataset, None otherwise
+        """
+        for dataset in self.get_datasets():
+            if dataset.get('name') == dataset_name:
+                return dataset.get('zip_path')

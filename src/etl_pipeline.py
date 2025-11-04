@@ -66,7 +66,7 @@ class AttomETLPipeline:
 
         # Extractor: move downloaded ZIP into the extracted area and unzip
         extracted_dir = working_dirs.get('extracted', 'data/extracted')
-        self.extractor = Extractor(self.logger, extracted_dir)
+        self.extractor = Extractor(self.logger, extracted_dir, config_loader=self.config_loader)
         # Ensure processed directory exists for optional post-processing of filtered files
         self.processed_dir = Path(working_dirs.get('processed', 'data/processed'))
         self.processed_dir.mkdir(parents=True, exist_ok=True)
@@ -112,7 +112,7 @@ class AttomETLPipeline:
                 
                 try:
                     # Move downloaded zip into extracted area and extract
-                    extracted_files = self.extractor.move_and_extract(zip_file)
+                    extracted_files = self.extractor.move_and_extract(zip_file, dataset_name=dataset_name)
                     
                     for extracted_file in extracted_files:
                         if extracted_file.suffix.lower() in ['.txt', '.csv']:

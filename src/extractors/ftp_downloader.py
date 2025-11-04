@@ -225,6 +225,10 @@ class FTPDownloader:
         downloads when supported by the server.
         """
         self.logger.info(f"Downloading via HTTP (resumable): {url}")
+        # Create parent directory if it doesn't exist
+        local_path = Path(local_path)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        
         temp_path = local_path.with_name(local_path.name + '.part')
         attempt = 0
 
@@ -250,9 +254,17 @@ class FTPDownloader:
                                 f.write(chunk)
 
                 # rename temp to final
-                temp_path.replace(local_path)
-                self.logger.info(f"Downloaded via HTTP: {local_path}")
-                return True
+                if temp_path.exists():
+                    try:
+                        temp_path.replace(local_path)
+                        self.logger.info(f"Successfully downloaded via HTTP: {local_path} (size={local_path.stat().st_size} bytes)")
+                        return True
+                    except Exception as rename_error:
+                        self.logger.error(f"Failed to rename temp file {temp_path} to {local_path}: {rename_error}")
+                        return False
+                else:
+                    self.logger.error(f"Temp file missing after download: {temp_path}")
+                    return False
 
             except Exception as e:
                 self.logger.warning(f"HTTP download attempt {attempt}/{retries} failed for {url}: {e}")
