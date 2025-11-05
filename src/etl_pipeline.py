@@ -7,6 +7,7 @@ from datetime import datetime
 from utils.logger import ETLLogger
 from utils.config_loader import ConfigLoader
 from extractors.ftp_downloader import FTPDownloader
+from extractors.jetstream_zip_downloader import JetstreamDownloader
 from extractors.extractor import Extractor
 from transformers.state_filter import StateFilter
 from loaders.spaces_uploader import SpacesUploader
@@ -45,8 +46,16 @@ class AttomETLPipeline:
             self.logger.warning(f"Spaces uploader could not be initialized: {e}. Continuing in local-only mode.")
             self.uploader = None
 
-        # Pass the optional uploader to the downloader so it may upload files as they're downloaded
+        # Initialize FTP and Jetstream downloaders based on dataset type
         self.downloader = FTPDownloader(self.logger, ftp_config, states=self.states, spaces_uploader=self.uploader)
+        # Create config for Jetstream downloader
+        jetstream_config = {
+            'download_dir': working_dirs.get('downloads', 'data/downloads'),
+            'temp_dir': working_dirs.get('temp', 'data/temp'),
+            'extract_dir': working_dirs.get('extracted', 'data/extracted'),
+            'ftp_config': ftp_config  # Pass FTP config for uploading
+        }
+        self.jetstream_downloader = JetstreamDownloader(self.logger, jetstream_config)
 
         # FTP uploader (for pushing filtered zips back to an FTP outgoing folder)
         try:
@@ -92,7 +101,11 @@ class AttomETLPipeline:
         self.logger.log_etl_start(dataset_name)
         
         try:
-            downloaded_files = self.downloader.download_dataset(dataset_config)
+            # Use Jetstream downloader for Parcel dataset, FTP downloader for others
+            if dataset_name == "Parcel":
+                downloaded_files = self.jetstream_downloader.download_dataset(dataset_config)
+            else:
+                downloaded_files = self.downloader.download_dataset(dataset_config)
             
             if not downloaded_files:
                 self.logger.warning(f"No files downloaded for {dataset_name}")

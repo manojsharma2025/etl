@@ -1,8 +1,0 @@
-2025-10-31 10:20:25 - AttomETL - INFO - Filtering files for dataset 'Assessor' (parser: TAXASSESSOR) ignore_states=False
-2025-10-31 10:20:25 - AttomETL - INFO - Matched: 2CITY_TX_TAXASSESSOR_0002.zip (state=TX, parser present)
-2025-10-31 10:20:25 - AttomETL - INFO - Filtered 1 files out of 5 for dataset Assessor
-2025-10-31 10:20:25 - AttomETL - INFO - Filtering files for dataset 'Assessor' (parser: TAXASSESSOR) ignore_states=True
-2025-10-31 10:20:25 - AttomETL - INFO - Matched (parser only): 1PARKPLACE_TAXASSESSOR_0018.zip
-2025-10-31 10:20:25 - AttomETL - INFO - Matched (parser only): TAXASSESSOR_NATIONAL.zip
-2025-10-31 10:20:25 - AttomETL - INFO - Matched (parser only): 2CITY_TX_TAXASSESSOR_0002.zip
-2025-10-31 10:20:25 - AttomETL - INFO - Filtered 3 files out of 5 for dataset Assessor
