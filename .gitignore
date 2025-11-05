@@ -25,7 +25,7 @@ data/temp/*
 
 # Logs
 logs/*.log
-
+logs/
 # Configuration
 config/*.env
 config/credentials.json
